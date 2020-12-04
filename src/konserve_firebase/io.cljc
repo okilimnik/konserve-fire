@@ -49,57 +49,57 @@
 
 (defn it-exists? 
   [store id]
-    (let [resp (fire/read (:db store) (str (:root store) "/" id "/data") (:auth store) {:query {:shallow true}})]
+    (let [resp (fire/read (:db store) (str (:root store) "/" id "/data") {:query {:shallow true}})]
     (some? resp)))
   
 (defn get-it 
   [store id]
-  (let [resp (fire/read (:db store) (str (:root store) "/" id) (:auth store))]
+  (let [resp (fire/read (:db store) (str (:root store) "/" id))]
     (prep-read resp)))
 
 (defn get-it-only 
   [store id]
-  (let [resp (fire/read (:db store) (str (:root store) "/" id "/data") (:auth store))]
+  (let [resp (fire/read (:db store) (str (:root store) "/" id "/data"))]
     (when resp (->> resp ^String (combine-str) (.decode b64decoder) split-header))))
 
 (defn get-meta
   [store id]
-  (let [resp (fire/read (:db store) (str (:root store) "/" id "/meta") (:auth store))]
+  (let [resp (fire/read (:db store) (str (:root store) "/" id "/meta"))]
     (when resp (->> resp ^String (combine-str) (.decode b64decoder) split-header))))
 
 (defn update-it 
   [store id data]
-  (fire/update! (:db store) (str (:root store) "/" id) (prep-write data) (:auth store) {:print "silent"}))
+  (fire/update! (:db store) (str (:root store) "/" id) (prep-write data) {:print "silent"}))
 
 (defn delete-it 
   [store id]
-  (fire/delete! (:db store) (str (:root store) "/" id) (:auth store)))
+  (fire/delete! (:db store) (str (:root store) "/" id)))
 
 (defn get-keys 
   [store]
-  (let [resp (fire/read (:db store) (str (:root store)) (:auth store) {:query {:shallow true}})
+  (let [resp (fire/read (:db store) (str (:root store)) {:query {:shallow true}})
         key-stream (seq (keys resp))
         getmeta (fn [id] (get-meta store (name id)))]
     (map getmeta key-stream)))
 
 (defn raw-get-it-only 
   [store id]
-  (let [resp (fire/read (:db store) (str (:root store) "/" id "/data") (:auth store))]
+  (let [resp (fire/read (:db store) (str (:root store) "/" id "/data"))]
     (when resp (->> resp ^String (combine-str) (.decode b64decoder)))))
 
 (defn raw-get-meta 
   [store id]
-  (let [resp (fire/read (:db store) (str (:root store) "/" id "/meta") (:auth store))]
+  (let [resp (fire/read (:db store) (str (:root store) "/" id "/meta"))]
     (when resp (->> resp ^String (combine-str) (.decode b64decoder)))))
   
 (defn raw-update-it-only 
   [store id data]
   (when data
     (fire/update! (:db store) (str (:root store) "/" id "/data") 
-      (chunk-str (.encodeToString b64encoder ^"[B" data)) (:auth store) {:print "silent"})))
+      (chunk-str (.encodeToString b64encoder ^"[B" data)) {:print "silent"})))
 
 (defn raw-update-meta
   [store id meta]
   (when meta
     (fire/write! (:db store) (str (:root store) "/" id "/meta") 
-      (chunk-str (.encodeToString b64encoder ^"[B" meta)) (:auth store) {:print "silent"})))
+      (chunk-str (.encodeToString b64encoder ^"[B" meta)) {:print "silent"})))

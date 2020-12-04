@@ -19,7 +19,8 @@
                                         -serialize -deserialize
                                         PKeyIterable
                                         -keys]]
-            #?(:clj [konserve.storage-layout :refer [SplitLayout]]))
+            #?(:clj [konserve.storage-layout :refer [SplitLayout]]
+               :cljs [konserve-firebase.konserve.storage-layout :refer [SplitLayout]]))
   (:import  #?(:clj [java.io ByteArrayOutputStream])))
 
 #?(:clj (set! *warn-on-reflection* 1))
@@ -253,12 +254,7 @@
           (catch Error e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))))
       res-ch)))
 
-(defn connect []
-  #?(:clj (FirebaseDatabase/getInstance)
-     :cljs (do (ocall firebase-admin :initializeApp)
-               (ocall firebase-admin :database))))
-
-(defn new-fire-store
+(defn new-firebase-store
   "Creates an new store based on Firebase's realtime database."
   [{:keys [root db default-serializer serializers compressor encryptor read-handlers write-handlers]
     :or  {root "/konserve-firebase"
@@ -271,7 +267,7 @@
   (let [res-ch (async/chan 1)]
     (async/thread
       (try
-        (let [final-db (if (nil? db) (connect) db)
+        (let [final-db db
               final-root (if (str/starts-with? root "/") root (str "/" root))]
           (when-not final-db
             (throw (prep-ex "No database specified and one could not be automatically determined." (Error.))))
@@ -292,7 +288,7 @@
     (async/thread
       (try
         (let [store (:store fire-store)]
-          (fire/delete! (:db store) (str (:root store)) (:auth store))
+          (fire/delete! (:db store) (str (:root store)))
           (async/close! res-ch))
         (catch Error e (async/put! res-ch (prep-ex "Failed to delete store" e)))))
     res-ch))
