@@ -2,13 +2,13 @@
   "IO function for interacting with database"
   (:require [firebase.core :as fire]
             [clojure.string :as str])
-  (:import  [java.util Base64 Base64$Decoder Base64$Encoder]
-            [java.io ByteArrayInputStream]))
+  (:import  #?(:clj [java.util Base64 Base64$Decoder Base64$Encoder])
+            #?(:clj [java.io ByteArrayInputStream])))
 
-(set! *warn-on-reflection* 1)
+#?(:clj (set! *warn-on-reflection* 1))
 
-(def ^Base64$Encoder b64encoder (. Base64 getEncoder))
-(def ^Base64$Decoder b64decoder (. Base64 getDecoder))
+#?(:clj (def ^Base64$Encoder b64encoder (. Base64 getEncoder)))
+#?(:clj (def ^Base64$Decoder b64decoder (. Base64 getDecoder)))
 
 (defn chunk-str [string]
   (when string

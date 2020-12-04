@@ -1,0 +1,29 @@
+{
+  "name": "hetaira-konserve-firebase",
+  "version": "1.0.0",
+  "description": "A Firebase implementation of the [konserve kv-protocol](https://github.com/replikativ/konserve) on top of Realtime database.",
+  "main": "index.js",
+  "dependencies": {
+    "base64-js": "^1.5.1",
+    "cuint": "^0.2.2",
+    "buffer": "^5.7.1",
+    "ieee754": "^1.2.1",
+    "lz4": "0.6.3",
+    "xxhashjs": "^0.2.2",
+    "nan": "^2.14.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/okilimnik/konserve-fire.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/okilimnik/konserve-fire/issues"
+  },
+  "homepage": "https://github.com/okilimnik/konserve-fire#readme"
+}

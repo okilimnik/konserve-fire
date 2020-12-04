@@ -2,4 +2,3 @@
  :builds    {:app {:target :npm-module
                    :entries [konserve-firebase.core]
                    :output-dir "node_modules/shadow-cljs"}}}
-
