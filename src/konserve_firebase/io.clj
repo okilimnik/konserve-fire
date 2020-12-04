@@ -1,6 +1,6 @@
-(ns konserve-fire.io
+(ns konserve-firebase.io
   "IO function for interacting with database"
-  (:require [fire.core :as fire]
+  (:require [firebase.core :as fire]
             [clojure.string :as str])
   (:import  [java.util Base64 Base64$Decoder Base64$Encoder]
             [java.io ByteArrayInputStream]))
