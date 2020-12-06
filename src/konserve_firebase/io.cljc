@@ -2,6 +2,7 @@
   "IO function for interacting with database"
   (:require [firebase.core :as fire]
             [clojure.string :as str]
+            #?(:cljs ["buffer" :refer [Buffer]])
             #?(:cljs [oops.core :refer [ocall oget]]))
   (:import  #?(:clj [java.util Base64 Base64$Decoder Base64$Encoder])
             #?(:clj [java.io ByteArrayInputStream])))
