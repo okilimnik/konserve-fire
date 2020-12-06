@@ -1,4 +1,4 @@
-(ns konserve-fire.core
+(ns konserve-firebase.core
   "Address globally aggregated immutable key-value store(s)."
   (:require #?(:clj [clojure.core.async :as async]
                :cljs [cljs.core.async :as async])
