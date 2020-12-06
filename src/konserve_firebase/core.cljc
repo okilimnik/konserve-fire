@@ -11,7 +11,7 @@
             #?(:cljs [oops.core :refer [ocall oget]])
             [hasch.core :as hasch]
             [konserve-firebase.io :as io]
-            [fire.core :as fire]
+            [firebase.core :as fire]
             [clojure.string :as str]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
                                         -exists? -get -get-meta
