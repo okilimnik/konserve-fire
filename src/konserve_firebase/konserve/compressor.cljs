@@ -15,7 +15,9 @@
 
 (defn encode [bytes]
   (let [input (ocall Buffer :from bytes)
-        output (ocall Buffer (ocall LZ4 :encodeBound (oget input :length)) :alloc)
+        input-length (oget input :length)
+        encoded (ocall LZ4 :encodeBound input-length)
+        output (ocall Buffer :alloc encoded)
         compressed-size (ocall LZ4 :encodeBlock input output)]
     (ocall output :slice 0 compressed-size)))
 
