@@ -10,7 +10,7 @@
             #?(:cljs ["buffer" :refer [Buffer]])
             #?(:cljs [oops.core :refer [ocall oget]])
             [hasch.core :as hasch]
-            [konserve-fire.io :as io]
+            [konserve-firebase.io :as io]
             [fire.core :as fire]
             [clojure.string :as str]
             [konserve.protocols :refer [PEDNAsyncKeyValueStore
