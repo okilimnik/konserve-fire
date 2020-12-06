@@ -27,6 +27,10 @@
 
 #?(:clj (set! *warn-on-reflection* 1))
 
+(defn empty-byte-array []
+  #?(:clj (ByteArrayOutputStream.)
+     :cljs (Buffer.)))
+
 (defn to-byte-array [mbaos]
   #?(:clj (.toByteArray mbaos)
      :cljs mbaos))
@@ -63,7 +67,7 @@
   (-exists?
     [this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (async/put! res-ch (io/it-exists? store (str-uuid key)))
           (catch Error e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
@@ -72,7 +76,7 @@
   (-get
     [this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[header res] (io/get-it-only store (str-uuid key))]
             (if (some? res)
@@ -89,7 +93,7 @@
   (-get-meta
     [this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[header res] (io/get-meta store (str-uuid key))]
             (if (some? res)
@@ -106,7 +110,7 @@
   (-update-in
     [this key-vec meta-up-fn up-fn args]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[fkey & rkey] key-vec
                 [[mheader ometa'] [vheader oval']] (io/get-it store (str-uuid fkey))
@@ -125,22 +129,24 @@
                 [nmeta nval] [(meta-up-fn (first old-val))
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
                 serializer (get serializers default-serializer)
-                writer (-> serializer compressor encryptor)]
+                writer (-> serializer compressor encryptor)
+                mbaos (atom (empty-byte-array))
+                vbaos (atom (empty-byte-array))]
             (when nmeta
-              (let [mbaos (to-bytes
-                           store-layout
-                           (ser/serializer-class->byte (type serializer))
-                           (comp/compressor->byte compressor)
-                           (encr/encryptor->byte encryptor))]
-                (-serialize writer mbaos write-handlers nmeta)))
+              (reset! mbaos (to-bytes
+                             store-layout
+                             (ser/serializer-class->byte (type serializer))
+                             (comp/compressor->byte compressor)
+                             (encr/encryptor->byte encryptor)))
+              (-serialize writer mbaos write-handlers nmeta))
             (when nval
-              (let [vbaos (to-bytes
-                           store-layout
-                           (ser/serializer-class->byte (type serializer))
-                           (comp/compressor->byte compressor)
-                           (encr/encryptor->byte encryptor))]
-                (-serialize writer vbaos write-handlers nval)))
-            (io/update-it store (str-uuid fkey) [(to-byte-array mbaos) (to-byte-array vbaos)])
+              (reset! vbaos (to-bytes
+                             store-layout
+                             (ser/serializer-class->byte (type serializer))
+                             (comp/compressor->byte compressor)
+                             (encr/encryptor->byte encryptor)))
+              (-serialize writer vbaos write-handlers nval))
+            (io/update-it store (str-uuid fkey) [(to-byte-array @mbaos) (to-byte-array @vbaos)])
             (async/put! res-ch [(second old-val) nval]))
           (catch Error e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
       res-ch))
@@ -150,7 +156,7 @@
   (-dissoc
     [this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (io/delete-it store (str-uuid key))
           (async/close! res-ch)
@@ -161,7 +167,7 @@
   (-bget
     [this key locked-cb]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[header res] (io/get-it-only store (str-uuid key))]
             (if (some? res)
@@ -178,7 +184,7 @@
   (-bassoc
     [this key meta-up-fn input]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [[[mheader old-meta'] [_ old-val]] (io/get-it store (str-uuid key))
                 old-meta (when old-meta'
@@ -189,20 +195,22 @@
                              (-deserialize reader read-handlers old-meta')))
                 new-meta (meta-up-fn old-meta)
                 serializer (get serializers default-serializer)
-                writer (-> serializer compressor encryptor)]
+                writer (-> serializer compressor encryptor)
+                mbaos (atom nil)
+                vbaos (atom nil)]
             (when new-meta
-              (let [mbaos (to-bytes store-layout
-                                    (ser/serializer-class->byte (type serializer))
-                                    (comp/compressor->byte compressor)
-                                    (encr/encryptor->byte encryptor))]
-                (-serialize writer mbaos write-handlers new-meta)))
+              (reset! mbaos (to-bytes store-layout
+                                      (ser/serializer-class->byte (type serializer))
+                                      (comp/compressor->byte compressor)
+                                      (encr/encryptor->byte encryptor)))
+              (-serialize writer mbaos write-handlers new-meta))
             (when input
-              (let [vbaos (to-bytes store-layout
-                                    (ser/serializer-class->byte (type serializer))
-                                    (comp/compressor->byte compressor)
-                                    (encr/encryptor->byte encryptor))]
-                (-serialize writer vbaos write-handlers input)))
-            (io/update-it store (str-uuid key) [(to-byte-array mbaos) (to-byte-array vbaos)])
+              (reset! vbaos (to-bytes store-layout
+                                      (ser/serializer-class->byte (type serializer))
+                                      (comp/compressor->byte compressor)
+                                      (encr/encryptor->byte encryptor)))
+              (-serialize writer vbaos write-handlers input))
+            (io/update-it store (str-uuid key) [(to-byte-array @mbaos) (to-byte-array @vbaos)])
             (async/put! res-ch [old-val input]))
           (catch Error e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
       res-ch))
@@ -211,7 +219,7 @@
   (-keys
     [_]
     (let [res-ch (async/chan)]
-      (async/thread
+      (async/go
         (try
           (let [key-stream (io/get-keys store)
                 keys' (when key-stream
@@ -231,7 +239,7 @@
   SplitLayout
   (-get-raw-meta [this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [res (io/raw-get-meta store (str-uuid key))]
             (if res
@@ -241,7 +249,7 @@
       res-ch))
   (-put-raw-meta [this key binary]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (io/raw-update-meta store (str-uuid key) binary)
           (async/close! res-ch)
@@ -249,7 +257,7 @@
       res-ch))
   (-get-raw-value [this key]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (let [res (io/raw-get-it-only store (str-uuid key))]
             (if res
@@ -259,7 +267,7 @@
       res-ch))
   (-put-raw-value [this key binary]
     (let [res-ch (async/chan 1)]
-      (async/thread
+      (async/go
         (try
           (io/raw-update-it-only store (str-uuid key) binary)
           (async/close! res-ch)
@@ -277,7 +285,7 @@
           read-handlers (atom {})
           write-handlers (atom {})}}]
   (let [res-ch (async/chan 1)]
-    (async/thread
+    (async/go
       (try
         (let [final-db db
               final-root (if (str/starts-with? root "/") root (str "/" root))]
@@ -297,7 +305,7 @@
 
 (defn delete-store [fire-store]
   (let [res-ch (async/chan 1)]
-    (async/thread
+    (async/go
       (try
         (let [store (:store fire-store)]
           (fire/delete! (:db store) (str (:root store)))
