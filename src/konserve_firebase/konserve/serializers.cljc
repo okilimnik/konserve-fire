@@ -72,19 +72,19 @@
   {0 (string-serializer)
    1 (fressian-serializer)})
 
-(def serializer-class->byte
-  (construct->class byte->serializer))
+?# (:clj (def serializer-class->byte
+           (construct->class byte->serializer)))
 
 #?(:clj (defn construct->keys [m]
           (->> (map (fn [[k v]] [(-> v class .getSimpleName keyword) v]) m)
                (into {}))))
 
-(def key->serializer
-  (construct->keys byte->serializer))
+#?(:clj (def key->serializer
+          (construct->keys byte->serializer)))
 
-(defn construct->byte [m n]
-  (->> (map (fn [[k0 v0] [k1 v1]] [k0 k1]) m n)
-       (into {})))
+#?(:clj (defn construct->byte [m n]
+          (->> (map (fn [[k0 v0] [k1 v1]] [k0 k1]) m n)
+               (into {}))))
 
-(def byte->key
-  (construct->byte byte->serializer key->serializer))
+#?(:clj (def byte->key
+          (construct->byte byte->serializer key->serializer)))
