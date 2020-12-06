@@ -76,7 +76,7 @@
           (construct->class byte->serializer)))
 
 (defn construct->keys [m]
-  (->> (map (fn [[k v]] [(case v
+  (->> (map (fn [[k v]] [(case k
                            0 :StringSerializer
                            1 :FressianSerializer) v]) m)
        (into {})))
