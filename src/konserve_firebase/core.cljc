@@ -7,6 +7,8 @@
                :cljs [konserve-firebase.konserve.compressor :as comp])
             #?(:clj [konserve.encryptor :as encr]
                :cljs [konserve-firebase.konserve.encryptor :as encr])
+            #?(:cljs ["buffer" :refer [Buffer]])
+            #?(:cljs [oops.core :refer [ocall oget]])
             [hasch.core :as hasch]
             [konserve-fire.io :as io]
             [fire.core :as fire]
@@ -24,6 +26,18 @@
   (:import  #?(:clj [java.io ByteArrayOutputStream])))
 
 #?(:clj (set! *warn-on-reflection* 1))
+
+(defn to-byte-array [mbaos]
+  #?(:clj (.toByteArray mbaos)
+     :cljs mbaos))
+
+(defn to-bytes [store-layout serializer compressor encryptor]
+  #?(:clj (let [mbaos (ByteArrayOutputStream.)]
+            (.write mbaos ^byte store-layout)
+            (.write mbaos ^byte serializer)
+            (.write mbaos ^byte compressor)
+            (.write mbaos ^byte encryptor))
+     :cljs (ocall Buffer :from (js/Uint8Array #js [store-layout serializer compressor encryptor]))))
 
 (def Error #?(:clj Exception
               :cljs js/Error))
@@ -111,22 +125,22 @@
                 [nmeta nval] [(meta-up-fn (first old-val))
                               (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
                 serializer (get serializers default-serializer)
-                writer (-> serializer compressor encryptor)
-                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
-                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+                writer (-> serializer compressor encryptor)]
             (when nmeta
-              (.write mbaos ^byte store-layout)
-              (.write mbaos ^byte (ser/serializer-class->byte (type serializer)))
-              (.write mbaos ^byte (comp/compressor->byte compressor))
-              (.write mbaos ^byte (encr/encryptor->byte encryptor))
-              (-serialize writer mbaos write-handlers nmeta))
+              (let [mbaos (to-bytes
+                           store-layout
+                           (ser/serializer-class->byte (type serializer))
+                           (comp/compressor->byte compressor)
+                           (encr/encryptor->byte encryptor))]
+                (-serialize writer mbaos write-handlers nmeta)))
             (when nval
-              (.write vbaos ^byte store-layout)
-              (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
-              (.write vbaos ^byte (comp/compressor->byte compressor))
-              (.write vbaos ^byte (encr/encryptor->byte encryptor))
-              (-serialize writer vbaos write-handlers nval))
-            (io/update-it store (str-uuid fkey) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (let [vbaos (to-bytes
+                           store-layout
+                           (ser/serializer-class->byte (type serializer))
+                           (comp/compressor->byte compressor)
+                           (encr/encryptor->byte encryptor))]
+                (-serialize writer vbaos write-handlers nval)))
+            (io/update-it store (str-uuid fkey) [(to-byte-array mbaos) (to-byte-array vbaos)])
             (async/put! res-ch [(second old-val) nval]))
           (catch Error e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
       res-ch))
@@ -175,22 +189,20 @@
                              (-deserialize reader read-handlers old-meta')))
                 new-meta (meta-up-fn old-meta)
                 serializer (get serializers default-serializer)
-                writer (-> serializer compressor encryptor)
-                ^ByteArrayOutputStream mbaos (ByteArrayOutputStream.)
-                ^ByteArrayOutputStream vbaos (ByteArrayOutputStream.)]
+                writer (-> serializer compressor encryptor)]
             (when new-meta
-              (.write mbaos ^byte store-layout)
-              (.write mbaos ^byte (ser/serializer-class->byte (type serializer)))
-              (.write mbaos ^byte (comp/compressor->byte compressor))
-              (.write mbaos ^byte (encr/encryptor->byte encryptor))
-              (-serialize writer mbaos write-handlers new-meta))
+              (let [mbaos (to-bytes store-layout
+                                    (ser/serializer-class->byte (type serializer))
+                                    (comp/compressor->byte compressor)
+                                    (encr/encryptor->byte encryptor))]
+                (-serialize writer mbaos write-handlers new-meta)))
             (when input
-              (.write vbaos ^byte store-layout)
-              (.write vbaos ^byte (ser/serializer-class->byte (type serializer)))
-              (.write vbaos ^byte (comp/compressor->byte compressor))
-              (.write vbaos ^byte (encr/encryptor->byte encryptor))
-              (-serialize writer vbaos write-handlers input))
-            (io/update-it store (str-uuid key) [(.toByteArray mbaos) (.toByteArray vbaos)])
+              (let [vbaos (to-bytes store-layout
+                                    (ser/serializer-class->byte (type serializer))
+                                    (comp/compressor->byte compressor)
+                                    (encr/encryptor->byte encryptor))]
+                (-serialize writer vbaos write-handlers input)))
+            (io/update-it store (str-uuid key) [(to-byte-array mbaos) (to-byte-array vbaos)])
             (async/put! res-ch [old-val input]))
           (catch Error e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
       res-ch))

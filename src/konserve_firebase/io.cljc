@@ -1,7 +1,8 @@
 (ns konserve-firebase.io
   "IO function for interacting with database"
   (:require [firebase.core :as fire]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            #?(:cljs [oops.core :refer [ocall oget]]))
   (:import  #?(:clj [java.util Base64 Base64$Decoder Base64$Encoder])
             #?(:clj [java.io ByteArrayInputStream])))
 
@@ -9,6 +10,22 @@
 
 #?(:clj (def ^Base64$Encoder b64encoder (. Base64 getEncoder)))
 #?(:clj (def ^Base64$Decoder b64decoder (. Base64 getDecoder)))
+
+(defn encode-to-string [data]
+  #?(:clj (.encodeToString b64encoder ^"[B" data)
+     :cljs (ocall data :toString "base64")))
+
+(defn decode [data]
+  #?(:clj (.decode b64decoder data)
+     :cljs (Buffer. data "base64")))
+
+(defn to-byte-array [data]
+  #?(:clj (byte-array data)
+     :cljs (js/Uint8Array. data)))
+
+(defn to-byte-array-input-stream [data]
+  #?(:clj (ByteArrayInputStream. data)
+     :cljs (js->clj (oget (ocall data :toJSON) :data))))
 
 (defn chunk-str [string]
   (when string
@@ -27,25 +44,25 @@
 (defn split-header [bytes]
   (when bytes
     (let [data  (->> bytes vec (split-at 4))
-          streamer (fn [header data] (list (byte-array header) (-> data byte-array (ByteArrayInputStream.))))]
+          streamer (fn [header data] (list (to-byte-array header) (-> data to-byte-array to-byte-array-input-stream)))]
       (apply streamer data))))
 
 (defn prep-write 
   [data]
   (let [[meta val] data]
     {:meta  (when meta 
-              (chunk-str (.encodeToString b64encoder ^"[B" meta)))
+              (chunk-str (encode-to-string meta)))
      :data  (when val 
-              (chunk-str (.encodeToString b64encoder ^"[B"  val)))}))
+              (chunk-str (encode-to-string  val)))}))
 
 (defn prep-read 
   [data']
   (let [meta (combine-str (:meta data'))
         data (combine-str (:data data'))]
     [ (when meta 
-        (split-header (.decode b64decoder ^String meta))) 
+        (split-header (decode meta))) 
       (when data  
-        (split-header (.decode b64decoder ^String data)))]))
+        (split-header (decode data)))]))
 
 (defn it-exists? 
   [store id]
@@ -60,12 +77,12 @@
 (defn get-it-only 
   [store id]
   (let [resp (fire/read (:db store) (str (:root store) "/" id "/data"))]
-    (when resp (->> resp ^String (combine-str) (.decode b64decoder) split-header))))
+    (when resp (->> resp ^String (combine-str) decode split-header))))
 
 (defn get-meta
   [store id]
   (let [resp (fire/read (:db store) (str (:root store) "/" id "/meta"))]
-    (when resp (->> resp ^String (combine-str) (.decode b64decoder) split-header))))
+    (when resp (->> resp ^String (combine-str) decode split-header))))
 
 (defn update-it 
   [store id data]
@@ -85,21 +102,21 @@
 (defn raw-get-it-only 
   [store id]
   (let [resp (fire/read (:db store) (str (:root store) "/" id "/data"))]
-    (when resp (->> resp ^String (combine-str) (.decode b64decoder)))))
+    (when resp (->> resp ^String (combine-str) decode))))
 
 (defn raw-get-meta 
   [store id]
   (let [resp (fire/read (:db store) (str (:root store) "/" id "/meta"))]
-    (when resp (->> resp ^String (combine-str) (.decode b64decoder)))))
+    (when resp (->> resp ^String (combine-str) decode))))
   
 (defn raw-update-it-only 
   [store id data]
   (when data
     (fire/update! (:db store) (str (:root store) "/" id "/data") 
-      (chunk-str (.encodeToString b64encoder ^"[B" data)) {:print "silent"})))
+      (chunk-str (encode-to-string data)) {:print "silent"})))
 
 (defn raw-update-meta
   [store id meta]
   (when meta
     (fire/write! (:db store) (str (:root store) "/" id "/meta") 
-      (chunk-str (.encodeToString b64encoder ^"[B" meta)) {:print "silent"})))
+      (chunk-str (encode-to-string meta)) {:print "silent"})))
