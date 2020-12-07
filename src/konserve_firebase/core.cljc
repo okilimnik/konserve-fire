@@ -2,13 +2,15 @@
   "Address globally aggregated immutable key-value store(s)."
   (:require #?(:clj [clojure.core.async :as async]
                :cljs [cljs.core.async :as async])
-            [konserve-firebase.konserve.serializers :as ser]
+            #?(:clj [konserve..serializers :as ser]
+               :cljs [konserve-firebase.konserve.serializers :as ser])
             #?(:clj [konserve.compressor :as comp]
                :cljs [konserve-firebase.konserve.compressor :as comp])
             #?(:clj [konserve.encryptor :as encr]
                :cljs [konserve-firebase.konserve.encryptor :as encr])
             #?(:cljs ["buffer" :refer [Buffer]])
             #?(:cljs [oops.core :refer [ocall oget]])
+            [konserve-firebase.konserve.finalizer :as fin]
             [hasch.core :as hasch]
             [konserve-firebase.io :as io]
             [firebase.core :as fire]
@@ -22,26 +24,9 @@
                                         PKeyIterable
                                         -keys]]
             #?(:clj [konserve.storage-layout :refer [SplitLayout]]
-               :cljs [konserve-firebase.konserve.storage-layout :refer [SplitLayout]]))
-  (:import  #?(:clj [java.io ByteArrayOutputStream])))
+               :cljs [konserve-firebase.konserve.storage-layout :refer [SplitLayout]])))
 
 #?(:clj (set! *warn-on-reflection* 1))
-
-(defn empty-byte-array []
-  #?(:clj (ByteArrayOutputStream.)
-     :cljs (Buffer.)))
-
-(defn to-byte-array [mbaos]
-  #?(:clj (.toByteArray mbaos)
-     :cljs mbaos))
-
-(defn to-bytes [store-layout serializer compressor encryptor]
-  #?(:clj (let [mbaos (ByteArrayOutputStream.)]
-            (.write mbaos ^byte store-layout)
-            (.write mbaos ^byte serializer)
-            (.write mbaos ^byte compressor)
-            (.write mbaos ^byte encryptor))
-     :cljs (ocall Buffer :from (js/Uint8Array #js [store-layout serializer compressor encryptor]))))
 
 (def Error #?(:clj Exception
               :cljs js/Error))
@@ -62,6 +47,22 @@
   {:input-stream stream
    :size nil})
 
+(defn read-data [header res read-handlers]
+  (let [serializer (ser/byte->serializer (get header 1))
+        compressor (comp/byte->compressor (get header 2))
+        encryptor  (encr/byte->encryptor  (get header 3))
+        reader (-> fin/finalizer serializer compressor encryptor)]
+    (-deserialize reader read-handlers res)))
+
+(defn get-writer []
+  (let [serializer (ser/byte->serializer  1)
+        compressor (comp/byte->compressor 1)
+        encryptor  (encr/byte->encryptor 0)]
+    (-> fin/finalizer encryptor compressor serializer)))
+
+(defn get-header []
+  (fin/header store-layout 1 1 0))
+
 (defrecord FireStore [store default-serializer serializers compressor encryptor read-handlers write-handlers locks]
   PEDNAsyncKeyValueStore
   (-exists?
@@ -69,7 +70,7 @@
     (let [res-ch (async/chan 1)]
       (async/go
         (try
-          (async/put! res-ch (io/it-exists? store (str-uuid key)))
+          (async/put! res-ch (<! (io/it-exists? store (str-uuid key))))
           (catch Error e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
       res-ch))
 
@@ -78,14 +79,9 @@
     (let [res-ch (async/chan 1)]
       (async/go
         (try
-          (let [[header res] (io/get-it-only store (str-uuid key))]
+          (let [[header res] (<! (io/get-it-only store (str-uuid key)))]
             (if (some? res)
-              (let [rserializer (ser/byte->serializer (get header 1))
-                    rcompressor (comp/byte->compressor (get header 2))
-                    rencryptor  (encr/byte->encryptor  (get header 3))
-                    reader (-> rserializer rencryptor rcompressor)
-                    data (-deserialize reader read-handlers res)]
-                (async/put! res-ch data))
+              (async/put! res-ch (read-data header res read-handlers))
               (async/close! res-ch)))
           (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
       res-ch))
@@ -97,12 +93,7 @@
         (try
           (let [[header res] (io/get-meta store (str-uuid key))]
             (if (some? res)
-              (let [rserializer (ser/byte->serializer (get header 1))
-                    rcompressor (comp/byte->compressor (get header 2))
-                    rencryptor  (encr/byte->encryptor  (get header 3))
-                    reader (-> rserializer rencryptor rcompressor)
-                    data (-deserialize reader read-handlers res)]
-                (async/put! res-ch data))
+              (async/put! res-ch (read-data header res read-handlers))
               (async/close! res-ch)))
           (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))))
       res-ch))
@@ -111,44 +102,25 @@
     [this key-vec meta-up-fn up-fn args]
     (let [res-ch (async/chan 1)]
       (async/go
-        (try
-          (let [[fkey & rkey] key-vec
-                [[mheader ometa'] [vheader oval']] (io/get-it store (str-uuid fkey))
-                old-val [(when ometa'
-                           (let [mserializer (ser/byte->serializer  (get mheader 1))
-                                 mcompressor (comp/byte->compressor (get mheader 2))
-                                 mencryptor  (encr/byte->encryptor  (get mheader 3))
-                                 reader (-> mserializer mencryptor mcompressor)]
-                             (-deserialize reader read-handlers ometa')))
-                         (when oval'
-                           (let [vserializer (ser/byte->serializer  (get vheader 1))
-                                 vcompressor (comp/byte->compressor (get vheader 2))
-                                 vencryptor  (encr/byte->encryptor  (get vheader 3))
-                                 reader (-> vserializer vencryptor vcompressor)]
-                             (-deserialize reader read-handlers oval')))]
-                [nmeta nval] [(meta-up-fn (first old-val))
-                              (if rkey (apply update-in (second old-val) rkey up-fn args) (apply up-fn (second old-val) args))]
-                serializer (get serializers default-serializer)
-                writer (-> serializer compressor encryptor)
-                mbaos (atom (empty-byte-array))
-                vbaos (atom (empty-byte-array))]
-            (when nmeta
-              (reset! mbaos (to-bytes
-                             store-layout
-                             (ser/serializer-class->byte (type serializer))
-                             (comp/compressor->byte compressor)
-                             (encr/encryptor->byte encryptor)))
-              (-serialize writer mbaos write-handlers nmeta))
-            (when nval
-              (reset! vbaos (to-bytes
-                             store-layout
-                             (ser/serializer-class->byte (type serializer))
-                             (comp/compressor->byte compressor)
-                             (encr/encryptor->byte encryptor)))
-              (-serialize writer vbaos write-handlers nval))
-            (io/update-it store (str-uuid fkey) [(to-byte-array @mbaos) (to-byte-array @vbaos)])
-            (async/put! res-ch [(second old-val) nval]))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to update/write value in store" e)))))
+        (let [[fkey & rkey] key-vec
+              [[mheader ometa'] [vheader oval']] (<! (io/get-it store (str-uuid fkey)))
+              old-val [(when ometa'
+                         (read-data mheader ometa' read-handlers))
+                       (when oval'
+                         (read-data vheader oval' read-handlers))]
+              [nmeta nval] [(meta-up-fn (first old-val))
+                            (if rkey
+                              (apply update-in (second old-val) rkey up-fn args)
+                              (apply up-fn (second old-val) args))]
+              writer (get-writer)
+              mbaos (atom nil)
+              vbaos (atom nil)]
+          (when nmeta
+            (reset! mbaos (-serialize writer (get-header) write-handlers nmeta)))
+          (when nval
+            (reset! vbaos (-serialize writer (get-header) write-handlers nval)))
+          (<! (io/update-it store (str-uuid fkey) [@mbaos @vbaos]))
+          (async/put! res-ch [(second old-val) nval])))
       res-ch))
 
   (-assoc-in [this key-vec meta val] (-update-in this key-vec meta (fn [_] val) []))
@@ -171,12 +143,7 @@
         (try
           (let [[header res] (io/get-it-only store (str-uuid key))]
             (if (some? res)
-              (let [rserializer (ser/byte->serializer (get header 1))
-                    rcompressor (comp/byte->compressor (get header 2))
-                    rencryptor  (encr/byte->encryptor  (get header 3))
-                    reader (-> rserializer rencryptor rcompressor)
-                    data (-deserialize reader read-handlers res)]
-                (async/put! res-ch (locked-cb (prep-stream data))))
+              (async/put! res-ch (locked-cb (prep-stream (read-data header res read-handlers))))
               (async/close! res-ch)))
           (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
       res-ch))
@@ -188,29 +155,16 @@
         (try
           (let [[[mheader old-meta'] [_ old-val]] (io/get-it store (str-uuid key))
                 old-meta (when old-meta'
-                           (let [mserializer (ser/byte->serializer  (get mheader 1))
-                                 mcompressor (comp/byte->compressor (get mheader 2))
-                                 mencryptor  (encr/byte->encryptor  (get mheader 3))
-                                 reader (-> mserializer mencryptor mcompressor)]
-                             (-deserialize reader read-handlers old-meta')))
+                           (read-data mheader old-meta' read-handlers))
                 new-meta (meta-up-fn old-meta)
-                serializer (get serializers default-serializer)
-                writer (-> serializer compressor encryptor)
+                writer (get-writer)
                 mbaos (atom nil)
                 vbaos (atom nil)]
             (when new-meta
-              (reset! mbaos (to-bytes store-layout
-                                      (ser/serializer-class->byte (type serializer))
-                                      (comp/compressor->byte compressor)
-                                      (encr/encryptor->byte encryptor)))
-              (-serialize writer mbaos write-handlers new-meta))
+              (reset! mbaos (-serialize writer (get-header) write-handlers new-meta)))
             (when input
-              (reset! vbaos (to-bytes store-layout
-                                      (ser/serializer-class->byte (type serializer))
-                                      (comp/compressor->byte compressor)
-                                      (encr/encryptor->byte encryptor)))
-              (-serialize writer vbaos write-handlers input))
-            (io/update-it store (str-uuid key) [(to-byte-array @mbaos) (to-byte-array @vbaos)])
+              (reset! vbaos (-serialize writer (get-header) write-handlers input)))
+            (<! (io/update-it store (str-uuid key) [@mbaos @vbaos]))
             (async/put! res-ch [old-val input]))
           (catch Error e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
       res-ch))
@@ -224,11 +178,7 @@
           (let [key-stream (io/get-keys store)
                 keys' (when key-stream
                         (for [[header k] key-stream]
-                          (let [rserializer (ser/byte->serializer (get header 1))
-                                rcompressor (comp/byte->compressor (get header 2))
-                                rencryptor  (encr/byte->encryptor  (get header 3))
-                                reader (-> rserializer rencryptor rcompressor)]
-                            (-deserialize reader read-handlers k))))
+                          (read-data header k read-handlers)))
                 keys (doall (map :key keys'))]
             (doall
              (map #(async/put! res-ch %) keys))

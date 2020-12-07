@@ -4,6 +4,9 @@
                       [incognito.fressian :refer [incognito-read-handlers
                                                   incognito-write-handlers]]])
             #?@(:cljs [[fress.api :as fress]
+                       [fress.writer :as w]
+                       ["buffer" :refer [Buffer]]
+                       #?(:cljs [oops.core :refer [ocall oget]])
                        [incognito.fressian :refer [incognito-read-handlers incognito-write-handlers]]])
             [incognito.edn :refer [read-string-safe]])
   #?(:clj (:import [java.io FileOutputStream FileInputStream DataInputStream DataOutputStream]
@@ -13,43 +16,47 @@
    (defrecord FressianSerializer [custom-read-handlers custom-write-handlers]
      PStoreSerializer
      (-deserialize [_ read-handlers bytes]
-       (fress/read bytes
+       (fress/read (fress/byte-stream)
                    :handlers (-> (merge fress/clojure-read-handlers
                                         custom-read-handlers
                                         (incognito-read-handlers read-handlers))
                                  fress/associative-lookup)))
-
      (-serialize [_ bytes write-handlers val]
-       (let [w (fress/create-writer bytes :handlers (-> (merge
-                                                         fress/clojure-write-handlers
-                                                         custom-write-handlers
-                                                         (incognito-write-handlers write-handlers))
-                                                        fress/associative-lookup
-                                                        fress/inheritance-lookup))]
+       (let [w (fress/create-writer (fress/byte-stream) :handlers (-> (merge
+                                                                       fress/clojure-write-handlers
+                                                                       custom-write-handlers
+                                                                       (incognito-write-handlers write-handlers))
+                                                                      fress/associative-lookup
+                                                                      fress/inheritance-lookup))]
          (fress/write-object w val)))))
 
 #?(:cljs
-   (defrecord FressianSerializer [custom-read-handlers custom-write-handlers]
+   (defrecord FressianSerializer [serializer custom-read-handlers custom-write-handlers]
      PStoreSerializer
      (-deserialize [_ read-handlers bytes]
-       (let [buf->arr (.from js/Array (.from js/Int8Array bytes))
-             buf      (fress.impl.buffer/BytesOutputStream. buf->arr (count buf->arr))
-             reader   (fress/create-reader buf
+       (let [reader   (fress/create-reader bytes
                                            :handlers (merge custom-read-handlers
                                                             (incognito-read-handlers read-handlers)))
-             read     (fress/read-object reader)]
-         read))
+             res (fress/read-object reader)]
+         (if serializer
+           (-deserialize serializer read-handlers res)
+           res)))
      (-serialize [_ bytes write-handlers val]
-       (let [writer (fress/create-writer bytes
+       (let [buf (fress/byte-stream)
+             writer (fress/create-writer buf
                                          :handlers (merge
                                                     custom-write-handlers
                                                     (incognito-write-handlers write-handlers)))]
-         (fress/write-object writer val)))))
+         (fress/write-object writer val)
+         (if serializer
+           (-serialize serializer bytes write-handlers @buf)
+           @buf)))))
 
 (defn fressian-serializer
-  ([] (fressian-serializer {} {}))
-  ([read-handlers write-handlers] (map->FressianSerializer {:custom-read-handlers read-handlers
-                                                            :custom-write-handlers write-handlers})))
+  ([serializer] (fressian-serializer serializer {} {}))
+  ([serializer read-handlers write-handlers] (map->FressianSerializer {:serializer serializer
+                                                                       :custom-read-handlers read-handlers
+                                                                       :custom-write-handlers write-handlers})))
 (defrecord StringSerializer []
   PStoreSerializer
   (-deserialize [_ read-handlers s]
@@ -71,8 +78,8 @@
        (into {})))
 
 (def byte->serializer
-  {0 (string-serializer)
-   1 (fressian-serializer)})
+  {0 string-serializer
+   1 fressian-serializer})
 
 (def serializer-class->byte
   (construct->class byte->serializer))
