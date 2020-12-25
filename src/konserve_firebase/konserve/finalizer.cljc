@@ -2,11 +2,12 @@
   (:require
    [konserve.protocols :refer [PStoreSerializer -serialize -deserialize]]
    #?@(:cljs [["buffer" :refer [Buffer]]
-              [oops.core :refer [ocall oget]]]))
+              [oops.core :refer [ocall oget]]])
+   #?(:clj [clojure.java.io :as io]))
   #?(:clj (:import [java.io ByteArrayOutputStream])))
 
 (defn to-byte-array [data]
-  #?(:clj (byte-array data)
+  #?(:clj (.toByteArray data)
      :cljs (js/Int8Array. data)))
 
 (defn header [store-layout serializer compressor encryptor]
@@ -14,7 +15,8 @@
             (.write mbaos ^byte store-layout)
             (.write mbaos ^byte serializer)
             (.write mbaos ^byte compressor)
-            (.write mbaos ^byte encryptor))
+            (.write mbaos ^byte encryptor)
+            mbaos)
      :cljs (js/Int8Array. #js [store-layout serializer compressor encryptor])))
 
 (defn concat-buffers [buffer1 buffer2]
@@ -31,7 +33,7 @@
      :cljs (js/Int8Array. bytes 0 (oget bytes :length))))
 
 (defn to-byte-array-input-stream [data]
-  #?(:clj (ByteArrayInputStream. data)
+  #?(:clj (io/input-stream data)
      :cljs (ocall Buffer :from data)))
 
 (defn split-at! [index data]
@@ -42,9 +44,9 @@
 (defn split-header [bytes]
   (when bytes
     (let [data (->> bytes to-vec (split-at! 4))
-          streamer (fn [header res] (list #?(:clj (to-byte-array header)
+          streamer (fn [header res] (list #?(:clj (vec header)
                                              :cljs (vec header))
-                                          #?(:clj (-> res to-byte-array to-byte-array-input-stream)
+                                          #?(:clj (-> res byte-array io/input-stream)
                                              :cljs (ocall Buffer :from res))))
           res (apply streamer data)]
       res)))

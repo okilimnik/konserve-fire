@@ -2,12 +2,9 @@
   "Address globally aggregated immutable key-value store(s)."
   (:require #?(:clj [clojure.core.async :as async]
                :cljs [cljs.core.async :as async])
-            #?(:clj [konserve..serializers :as ser]
-               :cljs [konserve-firebase.konserve.serializers :as ser])
-            #?(:clj [konserve.compressor :as comp]
-               :cljs [konserve-firebase.konserve.compressor :as comp])
-            #?(:clj [konserve.encryptor :as encr]
-               :cljs [konserve-firebase.konserve.encryptor :as encr])
+            [konserve-firebase.konserve.serializers :as ser]
+            [konserve-firebase.konserve.compressor :as comp]
+            [konserve-firebase.konserve.encryptor :as encr]
             #?(:cljs ["buffer" :refer [Buffer]])
             #?(:cljs [oops.core :refer [ocall oget]])
             [konserve-firebase.konserve.finalizer :as fin]
@@ -23,13 +20,9 @@
                                         -serialize -deserialize
                                         PKeyIterable
                                         -keys]]
-            #?(:clj [konserve.storage-layout :refer [SplitLayout]]
-               :cljs [konserve-firebase.konserve.storage-layout :refer [SplitLayout]])))
+            [konserve-firebase.konserve.storage-layout :refer [SplitLayout]]))
 
 #?(:clj (set! *warn-on-reflection* 1))
-
-(def Error #?(:clj Exception
-              :cljs js/Error))
 
 (def store-layout 1)
 
@@ -39,7 +32,7 @@
 
 (defn prep-ex
   [^String message e]
-  #?(:clj (ex-info message {:error (.getMessage e) :cause (.getCause e) :trace (.getStackTrace e)})
+  #?(:clj (ex-info message {:error (.getMessage ^Exception e) :cause (.getCause ^Exception e) :trace (.getStackTrace ^Exception e)})
      :cljs (ex-info message {:error (js->clj e :keywordize-keys true)})))
 
 (defn prep-stream
@@ -70,8 +63,9 @@
     (let [res-ch (async/chan 1)]
       (async/go
         (try
-          (async/put! res-ch (<! (io/it-exists? store (str-uuid key))))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
+          (async/put! res-ch (async/<! (io/it-exists? store (str-uuid key))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to determine if item exists" e)))))
       res-ch))
 
   (-get
@@ -79,11 +73,12 @@
     (let [res-ch (async/chan 1)]
       (async/go
         (try
-          (let [[header res] (<! (io/get-it-only store (str-uuid key)))]
+          (let [[header res] (async/<! (io/get-it-only store (str-uuid key)))]
             (if (some? res)
               (async/put! res-ch (read-data header res read-handlers))
               (async/close! res-ch)))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to retrieve value from store" e)))))
       res-ch))
 
   (-get-meta
@@ -95,7 +90,9 @@
             (if (some? res)
               (async/put! res-ch (read-data header res read-handlers))
               (async/close! res-ch)))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) 
+                 e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))))
       res-ch))
 
   (-update-in
@@ -103,7 +100,7 @@
     (let [res-ch (async/chan 1)]
       (async/go
         (let [[fkey & rkey] key-vec
-              [[mheader ometa'] [vheader oval']] (<! (io/get-it store (str-uuid fkey)))
+              [[mheader ometa'] [vheader oval']] (async/<! (io/get-it store (str-uuid fkey)))
               old-val [(when ometa'
                          (read-data mheader ometa' read-handlers))
                        (when oval'
@@ -119,7 +116,7 @@
             (reset! mbaos (-serialize writer (get-header) write-handlers nmeta)))
           (when nval
             (reset! vbaos (-serialize writer (get-header) write-handlers nval)))
-          (<! (io/update-it store (str-uuid fkey) [@mbaos @vbaos]))
+          (async/<! (io/update-it store (str-uuid fkey) [@mbaos @vbaos]))
           (async/put! res-ch [(second old-val) nval])))
       res-ch))
 
@@ -132,7 +129,8 @@
         (try
           (io/delete-it store (str-uuid key))
           (async/close! res-ch)
-          (catch Error e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to delete key-value pair from store" e)))))
       res-ch))
 
   PBinaryAsyncKeyValueStore
@@ -145,7 +143,8 @@
             (if (some? res)
               (async/put! res-ch (locked-cb (prep-stream (read-data header res read-handlers))))
               (async/close! res-ch)))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to retrieve binary value from store" e)))))
       res-ch))
 
   (-bassoc
@@ -164,9 +163,10 @@
               (reset! mbaos (-serialize writer (get-header) write-handlers new-meta)))
             (when input
               (reset! vbaos (-serialize writer (get-header) write-handlers input)))
-            (<! (io/update-it store (str-uuid key) [@mbaos @vbaos]))
+            (async/<! (io/update-it store (str-uuid key) [@mbaos @vbaos]))
             (async/put! res-ch [old-val input]))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to write binary value in store" e)))))
       res-ch))
 
   PKeyIterable
@@ -183,7 +183,8 @@
             (doall
              (map #(async/put! res-ch %) keys))
             (async/close! res-ch))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to retrieve keys from store" e)))))
       res-ch))
 
   SplitLayout
@@ -195,7 +196,8 @@
             (if res
               (async/put! res-ch res)
               (async/close! res-ch)))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve raw metadata from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to retrieve raw metadata from store" e)))))
       res-ch))
   (-put-raw-meta [this key binary]
     (let [res-ch (async/chan 1)]
@@ -203,7 +205,8 @@
         (try
           (io/raw-update-meta store (str-uuid key) binary)
           (async/close! res-ch)
-          (catch Error e (async/put! res-ch (prep-ex "Failed to write raw metadata to store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to write raw metadata to store" e)))))
       res-ch))
   (-get-raw-value [this key]
     (let [res-ch (async/chan 1)]
@@ -213,7 +216,8 @@
             (if res
               (async/put! res-ch res)
               (async/close! res-ch)))
-          (catch Error e (async/put! res-ch (prep-ex "Failed to retrieve raw value from store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to retrieve raw value from store" e)))))
       res-ch))
   (-put-raw-value [this key binary]
     (let [res-ch (async/chan 1)]
@@ -221,7 +225,8 @@
         (try
           (io/raw-update-it-only store (str-uuid key) binary)
           (async/close! res-ch)
-          (catch Error e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))))
+          (catch #?(:clj Exception
+                    :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to write raw value to store" e)))))
       res-ch)))
 
 (defn new-firebase-store
@@ -240,7 +245,8 @@
         (let [final-db db
               final-root (if (str/starts-with? root "/") root (str "/" root))]
           (when-not final-db
-            (throw (prep-ex "No database specified and one could not be automatically determined." (Error.))))
+            (throw (prep-ex "No database specified and one could not be automatically determined." #?(:clj (Exception.)
+                                                                                                      :cljs (js/Error.)))))
           (async/put! res-ch
                       (map->FireStore {:store {:db final-db :root final-root}
                                        :default-serializer default-serializer
@@ -250,7 +256,8 @@
                                        :read-handlers read-handlers
                                        :write-handlers write-handlers
                                        :locks (atom {})})))
-        (catch Error e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
+        (catch #?(:clj Exception
+                  :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to connect to store" e)))))
     res-ch))
 
 (defn delete-store [fire-store]
@@ -260,5 +267,6 @@
         (let [store (:store fire-store)]
           (fire/delete! (:db store) (str (:root store)))
           (async/close! res-ch))
-        (catch Error e (async/put! res-ch (prep-ex "Failed to delete store" e)))))
+        (catch #?(:clj Exception
+                  :cljs js/Error) e (async/put! res-ch (prep-ex "Failed to delete store" e)))))
     res-ch))

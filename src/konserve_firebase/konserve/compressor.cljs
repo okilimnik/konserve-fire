@@ -30,11 +30,11 @@
 (defrecord Lz4Compressor [serializer]
   PStoreSerializer
   (-deserialize [_ read-handlers bytes]
-                (let [lz4-byte (decode bytes)]
-                  (-deserialize serializer read-handlers lz4-byte)))
+    (let [lz4-byte (decode bytes)]
+      (-deserialize serializer read-handlers lz4-byte)))
   (-serialize [_ bytes write-handlers val]
-              (let [lz4-byte (encode val)]
-                (-serialize serializer bytes write-handlers lz4-byte))))
+    (let [lz4-byte (encode val)]
+      (-serialize serializer bytes write-handlers lz4-byte))))
 
 (defn null-compressor [serializer]
   (NullCompressor. serializer))

@@ -5,6 +5,7 @@
 (defrecord NullEncryptor [serializer]
   PStoreSerializer
   (-deserialize [_ read-handlers bytes]
+    (println "hello from NullEncryptor")
     (-deserialize serializer read-handlers bytes))
   (-serialize [_ bytes write-handlers val]
     (-serialize serializer bytes write-handlers val)))

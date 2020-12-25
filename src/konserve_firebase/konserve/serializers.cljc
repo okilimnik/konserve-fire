@@ -10,25 +10,35 @@
                        [incognito.fressian :refer [incognito-read-handlers incognito-write-handlers]]])
             [incognito.edn :refer [read-string-safe]])
   #?(:clj (:import [java.io FileOutputStream FileInputStream DataInputStream DataOutputStream]
-                   [org.fressian.handlers WriteHandler ReadHandler])))
+                   [org.fressian.handlers WriteHandler ReadHandler]
+                   [java.io ByteArrayOutputStream])))
 
 #?(:clj
-   (defrecord FressianSerializer [custom-read-handlers custom-write-handlers]
+   (defrecord FressianSerializer [serializer custom-read-handlers custom-write-handlers]
      PStoreSerializer
      (-deserialize [_ read-handlers bytes]
-       (fress/read (fress/byte-stream)
-                   :handlers (-> (merge fress/clojure-read-handlers
-                                        custom-read-handlers
-                                        (incognito-read-handlers read-handlers))
-                                 fress/associative-lookup)))
+                   (println "hello from FressianSerializer")
+                   (println bytes)
+       (let [res (fress/read bytes
+                             :handlers (-> (merge fress/clojure-read-handlers
+                                                  custom-read-handlers
+                                                  (incognito-read-handlers read-handlers))
+                                           fress/associative-lookup))]
+         (if serializer
+           (-deserialize serializer read-handlers res)
+           res)))
      (-serialize [_ bytes write-handlers val]
-       (let [w (fress/create-writer (fress/byte-stream) :handlers (-> (merge
-                                                                       fress/clojure-write-handlers
-                                                                       custom-write-handlers
-                                                                       (incognito-write-handlers write-handlers))
-                                                                      fress/associative-lookup
-                                                                      fress/inheritance-lookup))]
-         (fress/write-object w val)))))
+       (let [baos (ByteArrayOutputStream.)
+             w (fress/create-writer baos :handlers (-> (merge
+                                                         fress/clojure-write-handlers
+                                                         custom-write-handlers
+                                                         (incognito-write-handlers write-handlers))
+                                                        fress/associative-lookup
+                                                        fress/inheritance-lookup))]
+         (fress/write-object w val)
+         (if serializer
+           (-serialize serializer bytes write-handlers baos)
+           baos)))))
 
 #?(:cljs
    (defrecord FressianSerializer [serializer custom-read-handlers custom-write-handlers]

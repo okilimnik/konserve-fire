@@ -7,7 +7,9 @@
                :cljs [cljs.core.async :as async])
             #?(:cljs ["buffer" :refer [Buffer]])
             #?(:cljs [oops.core :refer [ocall]]))
-  (:import  #?(:clj [java.util Base64 Base64$Decoder Base64$Encoder])))
+  (:import  #?@(:clj [[java.util Base64 Base64$Decoder Base64$Encoder]
+                      [java.io ByteArrayOutputStream]])))
+
 
 #?(:clj (set! *warn-on-reflection* 1))
 
@@ -15,10 +17,10 @@
 #?(:clj (def ^Base64$Decoder b64decoder (. Base64 getDecoder)))
 
 (defn encode-to-string [data]
-  #?(:clj (.encodeToString b64encoder ^"[B" data)
+  #?(:clj (.encodeToString b64encoder (.toByteArray ^ByteArrayOutputStream data))
      :cljs (ocall data :toString "base64")))
 
-(defn decode [data]
+(defn decode [^String data]
   #?(:clj (.decode b64decoder data)
      :cljs (ocall Buffer :from data "base64")))
 
@@ -75,7 +77,7 @@
     (let [ch (async/chan)]
       (fire/read (:db store) (str (:root store) "/" id "/data") {:async ch})
       (let [resp (async/<! ch)]
-
+ 
         (when (seq resp) (->> resp combine-str decode finalizer/split-header))))))
 
 (defn get-meta
@@ -84,7 +86,7 @@
     (let [ch (async/chan)]
       (fire/read (:db store) (str (:root store) "/" id "/meta") {:async ch})
       (let [resp (async/<! ch)]
-   
+
         (when (seq resp) (->> resp ^String (combine-str) decode finalizer/split-header))))))
 
 (defn update-it
