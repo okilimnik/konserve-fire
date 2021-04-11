@@ -77,7 +77,7 @@
     (let [ch (async/chan)]
       (fire/read (:db store) (str (:root store) "/" id "/data") {:async ch})
       (let [resp (async/<! ch)]
- 
+
         (when (seq resp) (->> resp combine-str decode finalizer/split-header))))))
 
 (defn get-meta

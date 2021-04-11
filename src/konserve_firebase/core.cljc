@@ -91,7 +91,7 @@
               (async/put! res-ch (read-data header res read-handlers))
               (async/close! res-ch)))
           (catch #?(:clj Exception
-                    :cljs js/Error) 
+                    :cljs js/Error)
                  e (async/put! res-ch (prep-ex "Failed to retrieve metadata from store" e)))))
       res-ch))
 

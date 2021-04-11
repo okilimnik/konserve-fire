@@ -17,8 +17,6 @@
    (defrecord FressianSerializer [serializer custom-read-handlers custom-write-handlers]
      PStoreSerializer
      (-deserialize [_ read-handlers bytes]
-                   (println "hello from FressianSerializer")
-                   (println bytes)
        (let [res (fress/read bytes
                              :handlers (-> (merge fress/clojure-read-handlers
                                                   custom-read-handlers
@@ -30,11 +28,11 @@
      (-serialize [_ bytes write-handlers val]
        (let [baos (ByteArrayOutputStream.)
              w (fress/create-writer baos :handlers (-> (merge
-                                                         fress/clojure-write-handlers
-                                                         custom-write-handlers
-                                                         (incognito-write-handlers write-handlers))
-                                                        fress/associative-lookup
-                                                        fress/inheritance-lookup))]
+                                                        fress/clojure-write-handlers
+                                                        custom-write-handlers
+                                                        (incognito-write-handlers write-handlers))
+                                                       fress/associative-lookup
+                                                       fress/inheritance-lookup))]
          (fress/write-object w val)
          (if serializer
            (-serialize serializer bytes write-handlers baos)

@@ -13,3 +13,6 @@ pom.xml.asc
 .hg/
 *.log
 /.cpcache
+/.clj-kondo
+/.lsp
+/.shadow-cljs
